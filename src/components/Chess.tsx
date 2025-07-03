@@ -17,8 +17,12 @@ const ChessGame: React.FC = () => {
   // Initialize the chess game
   const [game, setGame] = useState(new Chess());
 
+  // State for custom FEN input
+  const [customFen, setCustomFen] = useState('');
+  const [fenError, setFenError] = useState<string | null>(null);
+
   // Store the initial FEN
-  const [initialFen] = useState(game.fen());
+  const [initialFen, setInitialFen] = useState(game.fen());
 
   // State to track move history
   const [moveHistory, setMoveHistory] = useState<Move[]>([]);
@@ -88,9 +92,41 @@ const ChessGame: React.FC = () => {
     return move;
   };
 
+  // Function to validate FEN string
+  const validateFen = (fen: string): boolean => {
+    try {
+      // Try to create a new Chess instance with the provided FEN
+      new Chess(fen);
+      setFenError(null);
+      return true;
+    } catch (e) {
+      // If there's an error, the FEN is invalid
+      setFenError('Invalid FEN string. Please check your input.');
+      return false;
+    }
+  };
+
   // Function to reset the game
   const resetGame = () => {
-    const newGame = new Chess();
+    let newGame;
+
+    // If custom FEN is provided and valid, use it
+    if (customFen.trim() !== '') {
+      if (validateFen(customFen)) {
+        newGame = new Chess(customFen);
+        // Update the initial FEN
+        setInitialFen(customFen);
+      } else {
+        // If FEN is invalid, use default position
+        newGame = new Chess();
+      }
+    } else {
+      // If no custom FEN is provided, use default position
+      newGame = new Chess();
+      // Update the initial FEN to the default position
+      setInitialFen(newGame.fen());
+    }
+
     setGame(newGame);
     setMoveHistory([]);
     setGameOver(null);
@@ -147,6 +183,42 @@ const ChessGame: React.FC = () => {
           {gameOver && (
             <div className="mt-4 p-2 bg-blue-900 text-blue-100 rounded">
               <p className="text-xl">{gameOver}</p>
+
+              <div className="mt-4">
+                <label htmlFor="fen-input-gameover" className="block text-sm font-medium mb-1">
+                  Custom FEN for new game (optional):
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    id="fen-input-gameover"
+                    type="text"
+                    value={customFen}
+                    onChange={(e) => setCustomFen(e.target.value)}
+                    placeholder="Enter FEN string"
+                    className="flex-grow p-2 bg-blue-800 border border-blue-700 rounded text-white"
+                  />
+                  <button
+                    className="px-3 py-2 bg-blue-700 text-white rounded hover:bg-blue-600"
+                    onClick={() => validateFen(customFen)}
+                  >
+                    Validate
+                  </button>
+                  <button
+                    className="px-3 py-2 bg-blue-700 text-white rounded hover:bg-blue-600"
+                    onClick={() => setCustomFen('')}
+                    title="Clear custom FEN and use default starting position"
+                  >
+                    Clear
+                  </button>
+                </div>
+                {fenError && (
+                  <p className="text-red-300 text-sm mb-2">{fenError}</p>
+                )}
+                {customFen && !fenError && (
+                  <p className="text-green-300 text-sm mb-2">Valid FEN</p>
+                )}
+              </div>
+
               <button 
                 className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                 onClick={resetGame}
@@ -159,6 +231,42 @@ const ChessGame: React.FC = () => {
           {!gameOver && (
             <div className="mt-4 text-white">
               <p className="text-xl">Current turn: {game.turn() === 'w' ? 'White' : 'Black'}</p>
+
+              <div className="mt-4">
+                <label htmlFor="fen-input" className="block text-sm font-medium mb-1">
+                  Custom FEN (optional):
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    id="fen-input"
+                    type="text"
+                    value={customFen}
+                    onChange={(e) => setCustomFen(e.target.value)}
+                    placeholder="Enter FEN string"
+                    className="flex-grow p-2 bg-gray-700 border border-gray-600 rounded text-white"
+                  />
+                  <button
+                    className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-500"
+                    onClick={() => validateFen(customFen)}
+                  >
+                    Validate
+                  </button>
+                  <button
+                    className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-500"
+                    onClick={() => setCustomFen('')}
+                    title="Clear custom FEN and use default starting position"
+                  >
+                    Clear
+                  </button>
+                </div>
+                {fenError && (
+                  <p className="text-red-400 text-sm mb-2">{fenError}</p>
+                )}
+                {customFen && !fenError && (
+                  <p className="text-green-400 text-sm mb-2">Valid FEN</p>
+                )}
+              </div>
+
               <button 
                 className="mt-2 px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600"
                 onClick={resetGame}

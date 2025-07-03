@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
 import {Chessboard, type PieceDropHandlerArgs} from 'react-chessboard';
+import { findBestMove } from './MinimaxAgent';
 
 // Define Square type as string since that's how it's used in react-chessboard
 type Square = string;
@@ -30,24 +31,11 @@ const ChessGame: React.FC = () => {
   // State to track if the game is over
   const [gameOver, setGameOver] = useState<string | null>(null);
 
-  // Check if the game is over after each move
-  useEffect(() => {
-    if (game.isGameOver()) {
-      if (game.isCheckmate()) {
-        setGameOver(`Checkmate! ${game.turn() === 'w' ? 'Black' : 'White'} wins!`);
-      } else if (game.isDraw()) {
-        setGameOver('Draw!');
-      } else if (game.isStalemate()) {
-        setGameOver('Stalemate!');
-      } else if (game.isThreefoldRepetition()) {
-        setGameOver('Draw by threefold repetition!');
-      } else if (game.isInsufficientMaterial()) {
-        setGameOver('Draw by insufficient material!');
-      }
-    } else {
-      setGameOver(null);
-    }
-  }, [game]);
+  // State for computer player
+  const [playerColor, setPlayerColor] = useState<'w' | 'b'>('w'); // Player is white by default
+  const [computerThinking, setComputerThinking] = useState(false);
+  const [searchDepth, setSearchDepth] = useState(3); // Default search depth
+  const computerTimeoutRef = useRef<number | null>(null);
 
   // Function to make a move
   const makeMove = useCallback((move: { from: Square; to: Square; promotion?: string }) => {
@@ -76,10 +64,83 @@ const ChessGame: React.FC = () => {
     return false;
   }, [game]);
 
+  // Function to make the computer move
+  const makeComputerMove = useCallback(() => {
+    if (gameOver || game.turn() === playerColor) return;
+
+    setComputerThinking(true);
+
+    // Use a timeout to give the UI time to update and show the "thinking" state
+    computerTimeoutRef.current = window.setTimeout(() => {
+      try {
+        // Find the best move using minimax
+        // Pass the opposite of playerColor as the computerColor
+        const computerColor = playerColor === 'w' ? 'b' : 'w';
+        const bestMoveSan = findBestMove(game, searchDepth, computerColor);
+
+        if (bestMoveSan) {
+          // Convert SAN to move object
+          const gameCopy = new Chess(game.fen());
+          const moveObj = gameCopy.move(bestMoveSan);
+
+          if (moveObj) {
+            // Make the move
+            makeMove({
+              from: moveObj.from,
+              to: moveObj.to,
+              promotion: moveObj.promotion
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error making computer move:', error);
+      } finally {
+        setComputerThinking(false);
+        computerTimeoutRef.current = null;
+      }
+    }, 500); // Small delay to show "thinking" state
+  }, [game, gameOver, playerColor, searchDepth, makeMove]);
+  // Check if the game is over after each move and trigger computer move if needed
+  useEffect(() => {
+    if (game.isGameOver()) {
+      if (game.isCheckmate()) {
+        setGameOver(`Checkmate! ${game.turn() === 'w' ? 'Black' : 'White'} wins!`);
+      } else if (game.isDraw()) {
+        setGameOver('Draw!');
+      } else if (game.isStalemate()) {
+        setGameOver('Stalemate!');
+      } else if (game.isThreefoldRepetition()) {
+        setGameOver('Draw by threefold repetition!');
+      } else if (game.isInsufficientMaterial()) {
+        setGameOver('Draw by insufficient material!');
+      }
+      // Clear any pending computer move
+      if (computerTimeoutRef.current) {
+        window.clearTimeout(computerTimeoutRef.current);
+        computerTimeoutRef.current = null;
+      }
+      setComputerThinking(false);
+    } else {
+      setGameOver(null);
+
+      // If it's computer's turn, make a move
+      if (game.turn() !== playerColor && !computerThinking) {
+        makeComputerMove();
+      }
+    }
+  }, [game, playerColor, computerThinking, makeComputerMove]);
+
+
+
   // Function to handle piece drop (drag and drop)
   const onDrop = ({ sourceSquare, targetSquare }: PieceDropHandlerArgs) => {
     // If targetSquare is null (dropped outside the board), don't make a move
     if (targetSquare === null) return false;
+
+    // Prevent moves if it's not the player's turn or if the computer is thinking
+    if (game.turn() !== playerColor || computerThinking || gameOver) {
+      return false;
+    }
 
     // Check if promotion is needed
     const moveObj = {
@@ -108,6 +169,13 @@ const ChessGame: React.FC = () => {
 
   // Function to reset the game
   const resetGame = () => {
+    // Clear any pending computer move
+    if (computerTimeoutRef.current) {
+      window.clearTimeout(computerTimeoutRef.current);
+      computerTimeoutRef.current = null;
+    }
+    setComputerThinking(false);
+
     let newGame;
 
     // If custom FEN is provided and valid, use it
@@ -130,7 +198,15 @@ const ChessGame: React.FC = () => {
     setGame(newGame);
     setMoveHistory([]);
     setGameOver(null);
+
+    // If it's computer's turn (black and player is white, or white and player is black),
+    // trigger computer move
+    if (newGame.turn() !== playerColor) {
+      // Use a short timeout to allow the UI to update first
+      setTimeout(() => makeComputerMove(), 500);
+    }
   };
+
 
   // Sidebar component to display FEN and move history
   const MoveSidebar = () => {
@@ -143,6 +219,70 @@ const ChessGame: React.FC = () => {
           <p className="text-sm font-mono bg-gray-700 p-2 rounded overflow-x-auto text-gray-200">
             {initialFen}
           </p>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold mb-2">Computer Settings</h3>
+
+          <div className="mb-3">
+            <label className="block text-sm font-medium mb-1">
+              Play as:
+            </label>
+            <div className="flex gap-2">
+              <button
+                className={`px-3 py-2 rounded ${playerColor === 'w' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+                onClick={() => {
+                  if (playerColor !== 'w') {
+                    setPlayerColor('w');
+                    resetGame();
+                  }
+                }}
+              >
+                White
+              </button>
+              <button
+                className={`px-3 py-2 rounded ${playerColor === 'b' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+                onClick={() => {
+                  if (playerColor !== 'b') {
+                    setPlayerColor('b');
+                    resetGame();
+                  }
+                }}
+              >
+                Black
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label htmlFor="depth-slider" className="block text-sm font-medium mb-1">
+              Computer Strength (Depth: {searchDepth})
+            </label>
+            <input
+              id="depth-slider"
+              type="range"
+              min="1"
+              max="5"
+              step="1"
+              value={searchDepth}
+              onChange={(e) => setSearchDepth(parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span>Weaker (Faster)</span>
+              <span>Stronger (Slower)</span>
+            </div>
+          </div>
+
+          {computerThinking && (
+            <div className="bg-yellow-800 text-yellow-100 p-2 rounded flex items-center">
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Computer is thinking...
+            </div>
+          )}
         </div>
 
         <div>
@@ -169,16 +309,38 @@ const ChessGame: React.FC = () => {
 
       <div className="flex flex-col md:flex-row gap-6 items-start justify-center">
         <div className="w-full max-w-md mb-4">
-          <Chessboard 
-            options={{
-              position: game.fen(),
-              onPieceDrop: onDrop,
-              boardStyle: {
-                borderRadius: '4px',
-                boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)'
-              }
-            }}
-          />
+          <div className="relative">
+            <Chessboard 
+              options={{
+                position: game.fen(),
+                onPieceDrop: onDrop,
+                boardOrientation: playerColor === 'w' ? 'white' : 'black',
+                boardStyle: {
+                  borderRadius: '4px',
+                  boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)'
+                },
+                allowDragging: !gameOver && game.turn() === playerColor && !computerThinking
+              }}
+            />
+            {computerThinking && (
+              <div className="absolute top-2 right-2 z-10">
+                <div className="bg-gray-800 text-white px-3 py-1 rounded shadow-lg flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Thinking...
+                </div>
+              </div>
+            )}
+            {!computerThinking && !gameOver && game.turn() !== playerColor && (
+              <div className="absolute top-2 left-2 z-10">
+                <div className="bg-gray-800 text-white px-3 py-1 rounded shadow-lg">
+                  Computer's turn
+                </div>
+              </div>
+            )}
+          </div>
 
           {gameOver && (
             <div className="mt-4 p-2 bg-blue-900 text-blue-100 rounded">

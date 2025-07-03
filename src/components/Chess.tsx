@@ -258,7 +258,7 @@ const ChessGame: React.FC = () => {
               id="depth-slider"
               type="range"
               min="1"
-              max="5"
+              max="10"
               step="1"
               value={searchDepth}
               onChange={(e) => setSearchDepth(parseInt(e.target.value))}

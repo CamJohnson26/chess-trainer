@@ -195,16 +195,12 @@ const ChessGame: React.FC = () => {
       setInitialFen(newGame.fen());
     }
 
+    // Set player color to match the FEN's next to move value
+    setPlayerColor(newGame.turn());
+
     setGame(newGame);
     setMoveHistory([]);
     setGameOver(null);
-
-    // If it's computer's turn (black and player is white, or white and player is black),
-    // trigger computer move
-    if (newGame.turn() !== playerColor) {
-      // Use a short timeout to allow the UI to update first
-      setTimeout(() => makeComputerMove(), 500);
-    }
   };
 
 
